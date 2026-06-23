@@ -1,0 +1,28 @@
+# Python build and cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+build/
+dist/
+manus_pybind.egg-info/
+
+.history/
+# Local cache for docker pyenv versions
+.pyenv_versions/
+
+# Local wheel output
+wheelhouse/
+
+# Official SDK folder downloaded and placed by user at root level
+ManusSDK/
+
+# Binary libraries (copied automatically from ManusSDK/lib during build)
+manus_pybind/lib/*.so
+
+# IDE settings
+.vscode/
+.idea/
+*.swp
+*.swo

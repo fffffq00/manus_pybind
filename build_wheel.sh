@@ -40,8 +40,17 @@ pip install build pybind11 wheel auditwheel patchelf
 echo "=== Compiling and building Python Wheel (.whl) ==="
 python -m build --wheel
 
+MAJOR_VERSION=$(echo "$ACTIVE_VERSION" | cut -d. -f1)
+MINOR_VERSION=$(echo "$ACTIVE_VERSION" | cut -d. -f2)
+
 echo "=== Repairing wheel with auditwheel to bundle dependencies ==="
-auditwheel repair dist/manus_pybind-0.1.0-*.whl
+if [ "$MAJOR_VERSION" -eq 3 ] && [ "$MINOR_VERSION" -le 8 ]; then
+    echo "Detected Python ${ACTIVE_VERSION} (<= 3.8). Specifying modern plat tag for auditwheel..."
+    auditwheel repair --plat manylinux_2_31_x86_64 dist/manus_pybind-0.1.0-*.whl
+else
+    echo "Detected Python ${ACTIVE_VERSION} (>= 3.9). Using default auditwheel behavior..."
+    auditwheel repair dist/manus_pybind-0.1.0-*.whl
+fi
 
 echo ""
 echo "=== Build finished! ==="

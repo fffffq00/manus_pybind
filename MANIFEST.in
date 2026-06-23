@@ -1,0 +1,2 @@
+include manus_pybind/manus_pybind.pyi
+recursive-include manus_pybind/lib *.so

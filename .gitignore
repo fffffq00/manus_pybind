@@ -26,3 +26,5 @@ manus_pybind/lib/*.so
 .idea/
 *.swp
 *.swo
+
+log*

@@ -116,3 +116,12 @@ python example/visualize.py --ergo
 # 指定连接的 Manus Core 服务 IP
 python example/visualize.py --host 192.168.1.100
 ```
+
+## 已知问题
+可能出现的bug:
+`[warning] No compatible license found. Please connect a license with the SDK component.` \
+这是提示找不到license, 说明udev权限规则没有生效，配置见[device-rules](https://docs.manus-meta.com/latest/Plugins/SDK/Linux/#device-rules),添加后强制更新
+```bash
+sudo udevadm control --reload-rules && sudo udevadm trigger
+```
+拔下 Manus Dongle，等待 3 秒钟，重新插上 Manus Dongle。

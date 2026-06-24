@@ -11,6 +11,7 @@
 #include <thread>
 #include <atomic>
 #include <algorithm>
+#include <cmath>
 #include "ManusSDK.h"
 
 namespace py = pybind11;
@@ -106,6 +107,20 @@ inline PyVec3 get_local_coords(const PySkeletonNode& wrist_node, const PySkeleto
         -wrist_node.transform.rotation.z
     };
     return rotate_vector_by_quaternion(rel_pos, wq_conj);
+}
+
+inline bool is_valid_ergo_data(const float* data) {
+    bool all_zero = true;
+    for (int i = 0; i < 20; i++) {
+        float val = data[i];
+        if (std::isnan(val) || std::isinf(val) || val < -360.0f || val > 360.0f) {
+            return false;
+        }
+        if (val != 0.0f) {
+            all_zero = false;
+        }
+    }
+    return !all_zero;
 }
 
 class ManusClientPython {
@@ -507,13 +522,28 @@ private:
         }
 
         for (uint32_t i = 0; i < p_Ergo->dataCount; i++) {
-            // Simultaneously check Left Hand (0-19) and Right Hand (20-39) values in a single loop
-            bool has_left = false;
-            bool has_right = false;
-            for (int j = 0; j < 20; j++) {
-                if (p_Ergo->data[i].data[j] != 0.0f) has_left = true;
-                if (p_Ergo->data[i].data[j + 20] != 0.0f) has_right = true;
-                if (has_left && has_right) break; // Early exit if both hands are detected
+            uint32_t hand = 2; // 0=Left, 1=Right, 2=Unknown
+            if (!p_Ergo->data[i].isUserID) {
+                uint32_t gloveId = p_Ergo->data[i].id;
+                auto cache_it = s_instance->m_handSideCache.find(gloveId);
+                if (cache_it != s_instance->m_handSideCache.end()) {
+                    hand = cache_it->second;
+                } else {
+                    GloveLandscapeData gloveData;
+                    GloveLandscapeData_Init(&gloveData);
+                    if (CoreSdk_GetDataForGlove_UsingGloveId(gloveId, &gloveData) == SDKReturnCode_Success &&
+                        gloveData.side != Side_Invalid) {
+                        hand = (gloveData.side == Side_Left) ? 0 : 1; // 0=Left, 1=Right
+                        s_instance->m_handSideCache[gloveId] = hand;
+                    }
+                }
+            }
+
+            bool has_left = (hand == 0);
+            bool has_right = (hand == 1);
+            if (hand == 2) {
+                has_left = is_valid_ergo_data(p_Ergo->data[i].data);
+                has_right = is_valid_ergo_data(p_Ergo->data[i].data + 20);
             }
 
             if (has_left) {

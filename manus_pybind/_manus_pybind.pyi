@@ -50,7 +50,8 @@ class Ergonomics:
     """Represent real-time finger joint angles ergonomics data."""
     id: int
     is_user_id: bool
-    data: List[float]  # Maps to ErgonomicsDataType indexes
+    hand: int           # 0 for Left, 1 for Right
+    data: List[float]   # Joint angles for the active hand (length 20)
     def __init__(self) -> None: ...
 
 class Gesture:
@@ -176,5 +177,15 @@ class ManusClient:
         
         Returns:
             List of GestureData structures containing gesture name and probability mapping.
+        """
+        ...
+
+    def set_log_level(self, level: int) -> None:
+        """
+        Set the console log filter level for Manus SDK outputs.
+        
+        Args:
+            level: The severity threshold.
+                   0 = Debug, 1 = Info, 2 = Warn, 3 = Error.
         """
         ...

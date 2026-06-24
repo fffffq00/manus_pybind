@@ -4,6 +4,10 @@
 #include <vector>
 #include <string>
 #include <unordered_map>
+#include <iostream>
+#include <chrono>
+#include <iomanip>
+#include <sstream>
 #include "ManusSDK.h"
 
 namespace py = pybind11;
@@ -52,7 +56,8 @@ struct PyTracker {
 struct PyErgonomics {
     uint32_t id = 0;
     bool is_user_id = false;
-    std::vector<float> data; // Mapped index-by-index to ErgonomicsDataType
+    uint32_t hand = 0; // 0 for Left, 1 for Right
+    std::vector<float> data; // 20 elements representing the active hand's ergonomics data
 };
 
 struct PyGesture {
@@ -75,6 +80,7 @@ struct PyHost {
 class ManusClientPython {
 public:
     static ManusClientPython* s_instance;
+    static LogSeverity s_logLevel;
     std::mutex m_dataMutex;
     bool m_initialized = false;
     bool m_connected = false;
@@ -114,6 +120,7 @@ public:
         }
 
         // Register all callbacks required to pull data from streams
+        CoreSdk_RegisterCallbackForOnLog(&OnLogCallback);
         CoreSdk_RegisterCallbackForOnConnect(&OnConnected);
         CoreSdk_RegisterCallbackForOnDisconnect(&OnDisconnected);
         CoreSdk_RegisterCallbackForSkeletonStream(&OnSkeletonStream);
@@ -325,13 +332,43 @@ private:
 
     static void OnErgonomicsCallback(const ErgonomicsStream* const p_Ergo) {
         if (!s_instance) return;
-        std::vector<PyErgonomics> ergoList(p_Ergo->dataCount);
+        std::vector<PyErgonomics> ergoList;
+        ergoList.reserve(p_Ergo->dataCount * 2);
         for (uint32_t i = 0; i < p_Ergo->dataCount; i++) {
-            ergoList[i].id = p_Ergo->data[i].id;
-            ergoList[i].is_user_id = p_Ergo->data[i].isUserID;
-            ergoList[i].data.resize(ErgonomicsDataType_MAX_SIZE);
-            for (int j = 0; j < ErgonomicsDataType_MAX_SIZE; j++) {
-                ergoList[i].data[j] = p_Ergo->data[i].data[j];
+            // Check if there is any non-zero value in the first 20 elements (Left Hand)
+            bool has_left = false;
+            for (int j = 0; j < 20; j++) {
+                if (p_Ergo->data[i].data[j] != 0.0f) {
+                    has_left = true;
+                    break;
+                }
+            }
+
+            // Check if there is any non-zero value in the last 20 elements (Right Hand)
+            bool has_right = false;
+            for (int j = 20; j < 40; j++) {
+                if (p_Ergo->data[i].data[j] != 0.0f) {
+                    has_right = true;
+                    break;
+                }
+            }
+
+            if (has_left) {
+                PyErgonomics leftErgo;
+                leftErgo.id = p_Ergo->data[i].id;
+                leftErgo.is_user_id = p_Ergo->data[i].isUserID;
+                leftErgo.hand = 0; // Left Hand
+                leftErgo.data.assign(p_Ergo->data[i].data, p_Ergo->data[i].data + 20);
+                ergoList.push_back(std::move(leftErgo));
+            }
+
+            if (has_right) {
+                PyErgonomics rightErgo;
+                rightErgo.id = p_Ergo->data[i].id;
+                rightErgo.is_user_id = p_Ergo->data[i].isUserID;
+                rightErgo.hand = 1; // Right Hand
+                rightErgo.data.assign(p_Ergo->data[i].data + 20, p_Ergo->data[i].data + 40);
+                ergoList.push_back(std::move(rightErgo));
             }
         }
 
@@ -395,9 +432,68 @@ private:
         std::lock_guard<std::mutex> lock(s_instance->m_dataMutex);
         s_instance->m_gestures = std::move(gestureList);
     }
+
+    static void OnLogCallback(LogSeverity p_Severity, const char* const p_Log, uint32_t p_Length) {
+        if (p_Severity >= s_logLevel) {
+            std::string color_code = "";
+            std::string level_text = "";
+            switch (p_Severity) {
+                case LogSeverity_Debug:
+                    color_code = "\033[36m"; // Cyan
+                    level_text = "[debug]";
+                    break;
+                case LogSeverity_Info:
+                    color_code = "\033[32m"; // Green
+                    level_text = "[info]";
+                    break;
+                case LogSeverity_Warn:
+                    color_code = "\033[33m"; // Yellow
+                    level_text = "[warning]";
+                    break;
+                case LogSeverity_Error:
+                    color_code = "\033[31m"; // Red
+                    level_text = "[error]";
+                    break;
+                default:
+                    level_text = "[unknown]";
+                    break;
+            }
+            
+            // Generate current local timestamp with millisecond precision
+            auto now = std::chrono::system_clock::now();
+            auto time_t_now = std::chrono::system_clock::to_time_t(now);
+            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now.time_since_epoch()
+            ) % 1000;
+            
+            std::tm tm_now;
+#ifdef _WIN32
+            localtime_s(&tm_now, &time_t_now);
+#else
+            localtime_r(&time_t_now, &tm_now);
+#endif
+            
+            std::ostringstream ss;
+            ss << "[" << std::put_time(&tm_now, "%Y-%m-%d %H:%M:%S") 
+               << "." << std::setfill('0') << std::setw(3) << ms.count() << "]";
+            std::string timestamp = ss.str();
+
+            // Format message content and strip existing line endings
+            std::string logStr(p_Log, p_Length);
+            while (!logStr.empty() && (logStr.back() == '\n' || logStr.back() == '\r')) {
+                logStr.pop_back();
+            }
+            
+            // Format log: Gray timestamp, colored level brackets, and default message text
+            std::cout << "\033[90m" << timestamp << "\033[0m "
+                      << color_code << level_text << "\033[0m "
+                      << logStr << "\n" << std::flush;
+        }
+    }
 };
 
-// Define global static pointer required for the global C callbacks
+// Define static members
+LogSeverity ManusClientPython::s_logLevel = LogSeverity_Warn;
 ManusClientPython* ManusClientPython::s_instance = nullptr;
 
 PYBIND11_MODULE(_manus_pybind, m) {
@@ -453,6 +549,7 @@ PYBIND11_MODULE(_manus_pybind, m) {
         .def(py::init<>())
         .def_readwrite("id", &PyErgonomics::id)
         .def_readwrite("is_user_id", &PyErgonomics::is_user_id)
+        .def_readwrite("hand", &PyErgonomics::hand)
         .def_readwrite("data", &PyErgonomics::data);
 
     py::class_<PyGesture>(m, "Gesture")
@@ -496,5 +593,8 @@ PYBIND11_MODULE(_manus_pybind, m) {
         .def("get_ergonomics_data", &ManusClientPython::get_ergonomics_data, 
              "Retrieves finger ergonomics angle measurements.")
         .def("get_gesture_data", &ManusClientPython::get_gesture_data, 
-             "Retrieves real-time gesture matching probabilities.");
+             "Retrieves real-time gesture matching probabilities.")
+        .def("set_log_level", [](ManusClientPython& self, int level) {
+             ManusClientPython::s_logLevel = static_cast<LogSeverity>(level);
+        }, "Sets the console log level (0=Debug, 1=Info, 2=Warn, 3=Error)");
 }

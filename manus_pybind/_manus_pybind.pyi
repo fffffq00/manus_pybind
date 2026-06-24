@@ -32,6 +32,7 @@ class Skeleton:
     """Represent a full retargeted skeleton containing multiple nodes."""
     id: int
     publish_time_seconds: int
+    hand: int           # 0 for Left, 1 for Right
     nodes: List[SkeletonNode]
     def __init__(self) -> None: ...
 
@@ -138,18 +139,22 @@ class ManusClient:
     def get_skeletons(self) -> List[Skeleton]:
         """
         Retrieve the latest retargeted skeletons stream data.
+        This data is mapped to target character joint structures and requires 
+        T-pose calibration and character assignment to be active in Manus Core.
         
         Returns:
-            List of active Skeleton data structures.
+            List of active retargeted Skeleton data structures.
         """
         ...
 
     def get_raw_skeletons(self) -> List[Skeleton]:
         """
-        Retrieve the latest raw (non-retargeted) skeleton joint transform data.
+        Retrieve the latest raw (non-retargeted) glove-driven hand skeleton joint transforms.
+        This data stream is pure hand glove tracking inputs and is available 
+        immediately upon connecting to Manus Core without requiring character pairing.
         
         Returns:
-            List of raw Skeleton data structures.
+            List of raw hand Skeleton data structures.
         """
         ...
 

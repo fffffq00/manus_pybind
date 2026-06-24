@@ -66,6 +66,9 @@ class ManusVisualizer:
             print("Failed to initialize Manus SDK.")
             return False
 
+        # Set console log level to Warn (2) to filter out info logs
+        self.client.set_log_level(2)
+
         if self.connection_type != 1:
             print("Scanning for Manus Core hosts...")
             hosts = self.client.look_for_hosts(seconds=1, local_only=(self.host_ip == ""))
@@ -127,11 +130,11 @@ class ManusVisualizer:
 
         ergo_list = self.client.get_ergonomics_data()
         left_data, right_data = None, None
-
         for ergo in ergo_list:
-            if len(ergo.data) >= 40:
-                left_data = ergo.data[0:20]
-                right_data = ergo.data[20:40]
+            if ergo.hand == 0 and len(ergo.data) >= 20:
+                left_data = ergo.data
+            elif ergo.hand == 1 and len(ergo.data) >= 20:
+                right_data = ergo.data
 
         updated_artists = []
         for hand_idx, finger_idx, rects in self.bars:
@@ -224,24 +227,6 @@ class ManusVisualizer:
             ),
         }
 
-    def rotate_vector_by_quaternion(self, v, q):
-        qw, qx, qy, qz = q
-        vx, vy, vz = v
-        tx = 2.0 * (qy * vz - qz * vy + qw * vx)
-        ty = 2.0 * (qz * vx - qx * vz + qw * vy)
-        tz = 2.0 * (qx * vy - qy * vx + qw * vz)
-        rx = vx + qy * tz - qz * ty
-        ry = vy + qz * tx - qx * tz
-        rz = vz + qx * ty - qy * tx
-        return (rx, ry, rz)
-
-    def get_local_coords(self, wrist_node, target_node):
-        wp = wrist_node.transform.position
-        wq = wrist_node.transform.rotation
-        rel_pos = (target_node.transform.position.x - wp.x, target_node.transform.position.y - wp.y, target_node.transform.position.z - wp.z)
-        wq_conj = (wq.w, -wq.x, -wq.y, -wq.z)
-        return self.rotate_vector_by_quaternion(rel_pos, wq_conj)
-
     def _update_line_artist(self, skeleton_id, part_idx, ax, x_data, y_data, z_data, active_keys, is_custom_style=False, **kwargs):
         """Helper to safely manage, reuse, or create line artists dynamically."""
         key = (skeleton_id, part_idx)
@@ -257,12 +242,32 @@ class ManusVisualizer:
                 (line,) = ax.plot(x_data, y_data, z_data, marker="o", linewidth=3.5, markersize=5.5, markerfacecolor="white", markeredgewidth=1.2, **kwargs)
             self.skeleton_artists[key] = line
 
+    def rotate_vector_by_quaternion(self, v, q):
+        """Rotate a 3D vector v by a quaternion q."""
+        qw, qx, qy, qz = q.w, q.x, q.y, q.z
+        vx, vy, vz = v
+        tx = 2.0 * (qy * vz - qz * vy + qw * vx)
+        ty = 2.0 * (qz * vx - qx * vz + qw * vy)
+        tz = 2.0 * (qx * vy - qy * vx + qw * vz)
+        return (vx + qy * tz - qz * ty, vy + qz * tx - qx * tz, vz + qx * ty - qy * tx)
+
     def update_skeleton_plot(self, frame):
         """Timer callback to fetch and plot 3D skeleton joint positions with dynamic tracking."""
         if not self.client.is_connected():
             return []
 
-        skeletons = self.client.get_skeletons() or self.client.get_raw_skeletons()
+        # 1. First try to get the retargeted hand skeletons (solved/mapped to target bones in Manus Core).
+        # This requires loading a skeleton and performing a T-pose calibration in Manus Core.
+        skeletons = self.client.get_skeletons()
+        if len(skeletons):
+            print(f"DEBUG: Frame {frame} - Received {len(skeletons)} retargeted hand skeleton(s) from Manus SDK.")
+        else:
+            # 2. If no retargeted skeletons are active, fallback to the raw glove hand skeletons.
+            # This is available immediately as long as the gloves are connected to Manus Core.
+            print(f"DEBUG: Frame {frame} - No retargeted hand data received, falling back to raw hand skeletons.")
+            skeletons = self.client.get_raw_skeletons()
+            if len(skeletons):
+                print(f"DEBUG: Frame {frame} - Received {len(skeletons)} raw hand skeleton(s) from Manus SDK.")
         current_time = time.time()
         active_artist_keys = set()
 
@@ -279,11 +284,11 @@ class ManusVisualizer:
                 if node_count >= 25:
                     # 25-node layout: includes metacarpal joints for fingers, starting from wrist (0)
                     finger_paths = [
-                        [0, 1, 2, 3, 4],            # Thumb (Wrist -> CMC -> MCP -> IP -> Tip)
-                        [0, 5, 6, 7, 8, 9],         # Index (Wrist -> Metacarpal -> MCP -> PIP -> DIP -> Tip)
-                        [0, 10, 11, 12, 13, 14],    # Middle (Wrist -> Metacarpal -> MCP -> PIP -> DIP -> Tip)
-                        [0, 15, 16, 17, 18, 19],    # Ring (Wrist -> Metacarpal -> MCP -> PIP -> DIP -> Tip)
-                        [0, 20, 21, 22, 23, 24]     # Pinky (Wrist -> Metacarpal -> MCP -> PIP -> DIP -> Tip)
+                        [0, 1, 2, 3, 4],  # Thumb (Wrist -> CMC -> MCP -> IP -> Tip)
+                        [0, 5, 6, 7, 8, 9],  # Index (Wrist -> Metacarpal -> MCP -> PIP -> DIP -> Tip)
+                        [0, 10, 11, 12, 13, 14],  # Middle (Wrist -> Metacarpal -> MCP -> PIP -> DIP -> Tip)
+                        [0, 15, 16, 17, 18, 19],  # Ring (Wrist -> Metacarpal -> MCP -> PIP -> DIP -> Tip)
+                        [0, 20, 21, 22, 23, 24],  # Pinky (Wrist -> Metacarpal -> MCP -> PIP -> DIP -> Tip)
                     ]
                     # Connect finger bases (Metacarpals) to outline palm width
                     palm_base_ids = [5, 10, 15, 20]
@@ -293,29 +298,15 @@ class ManusVisualizer:
                     index_idx = 6
                 else:
                     # 21-node layout, starting from wrist (0)
-                    finger_paths = [
-                        [0, 1, 2, 3, 4],            # Thumb
-                        [0, 5, 6, 7, 8],            # Index
-                        [0, 9, 10, 11, 12],         # Middle
-                        [0, 13, 14, 15, 16],        # Ring
-                        [0, 17, 18, 19, 20]         # Pinky
-                    ]
+                    finger_paths = [[0, 1, 2, 3, 4], [0, 5, 6, 7, 8], [0, 9, 10, 11, 12], [0, 13, 14, 15, 16], [0, 17, 18, 19, 20]]  # Thumb  # Index  # Middle  # Ring  # Pinky
                     palm_base_ids = [5, 9, 13, 17]
                     knuckle_path = [5, 9, 13, 17]
                     pinky_idx = 17
                     index_idx = 5
 
-                # Determine Hand Side Orientation (Left vs Right)
-                if skeleton.id not in self.skeleton_hand_types:
-                    wrist, pinky_mcp, index_mcp = nodes_by_id.get(0), nodes_by_id.get(pinky_idx), nodes_by_id.get(index_idx)
-                    if wrist and pinky_mcp and index_mcp:
-                        local_pinky = self.get_local_coords(wrist, pinky_mcp)
-                        local_index = self.get_local_coords(wrist, index_mcp)
-                        self.skeleton_hand_types[skeleton.id] = "Left" if (local_pinky[1] - local_index[1]) > 0 else "Right"
-                    else:
-                        continue
-
-                hand_side = self.skeleton_hand_types[skeleton.id]
+                # Determine Hand Side Orientation (Left vs Right) directly from C++ skeleton.hand
+                hand_side = "Left" if skeleton.hand == 0 else "Right"
+                self.skeleton_hand_types[skeleton.id] = hand_side
                 self.last_seen_times[hand_side] = current_time
                 self.active_skeleton_ids[hand_side] = skeleton.id
 

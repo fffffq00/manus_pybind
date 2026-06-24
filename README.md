@@ -1,8 +1,8 @@
 # Manus SDK Python 绑定包编译项目 (`manus_pybind`)
 
-本仓库提供了针对 **Manus Glove Core SDK** C++ 客户端的 Python 绑定包 (`manus_pybind`) 编译环境。项目使用 `pybind11` 实现 C++ 到 Python 的接口映射，并通过 Docker 和 `auditwheel` 打包出一个**完全自包含（Self-contained）**的 Python Wheel (`.whl`) 安装包。
+本仓库主要针对 **Manus Glove Core SDK** C++ 客户端的 Python 绑定包 (`manus_pybind`) 编译环境。项目使用 `pybind11` 实现 C++ 到 Python 的接口映射，并通过 Docker 和 `auditwheel` 打包出一个**完全自包含（Self-contained）**的 Python Wheel (`.whl`) 安装包。由于编译出的 Wheel 包已自动打包了所有的系统底层依赖项（如 `libprotobuf`、`libgrpc`、`libzmq`、`libusb` 等），所以可能文件较大。
 
-编译出的 Wheel 包已自动打包了所有的系统底层依赖项（如 `libprotobuf`、`libgrpc`、`libzmq`、`libusb` 等），只需在目标机器上执行 `pip install` 即可在任意 Python 环境中直接导入并使用。
+>**⚠️注意**：本仓库主要由Gemini辅助完成，本人不能保证代码的绝对正确性，使用时请自行验证。
 
 ---
 

@@ -21,6 +21,7 @@ import argparse
 # Add current folder to path to import the compiled module
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import manus_pybind
+import numpy as np
 
 # Check for matplotlib dependency
 try:
@@ -242,15 +243,6 @@ class ManusVisualizer:
                 (line,) = ax.plot(x_data, y_data, z_data, marker="o", linewidth=3.5, markersize=5.5, markerfacecolor="white", markeredgewidth=1.2, **kwargs)
             self.skeleton_artists[key] = line
 
-    def rotate_vector_by_quaternion(self, v, q):
-        """Rotate a 3D vector v by a quaternion q."""
-        qw, qx, qy, qz = q.w, q.x, q.y, q.z
-        vx, vy, vz = v
-        tx = 2.0 * (qy * vz - qz * vy + qw * vx)
-        ty = 2.0 * (qz * vx - qx * vz + qw * vy)
-        tz = 2.0 * (qx * vy - qy * vx + qw * vz)
-        return (vx + qy * tz - qz * ty, vy + qz * tx - qx * tz, vz + qx * ty - qy * tx)
-
     def update_skeleton_plot(self, frame):
         """Timer callback to fetch and plot 3D skeleton joint positions with dynamic tracking."""
         if not self.client.is_connected():
@@ -273,14 +265,12 @@ class ManusVisualizer:
 
         if skeletons:
             for skeleton in skeletons:
-                nodes = skeleton.nodes
-                if not nodes or len(nodes) < 21:
+                node_ids = skeleton.node_ids
+                node_count = len(node_ids)
+                if node_count < 21:
                     continue
 
-                nodes_by_id = {node.id: node for node in nodes}
-
                 # Determine Layout Parameters dynamically (21-node vs 25-node hand skeleton)
-                node_count = len(nodes)
                 if node_count >= 25:
                     # 25-node layout: includes metacarpal joints for fingers, starting from wrist (0)
                     finger_paths = [
@@ -294,15 +284,11 @@ class ManusVisualizer:
                     palm_base_ids = [5, 10, 15, 20]
                     # Connect knuckles (MCPs) of the 4 fingers only (excl. Thumb 2 to avoid palm crossing lines)
                     knuckle_path = [6, 11, 16, 21]
-                    pinky_idx = 21
-                    index_idx = 6
                 else:
                     # 21-node layout, starting from wrist (0)
                     finger_paths = [[0, 1, 2, 3, 4], [0, 5, 6, 7, 8], [0, 9, 10, 11, 12], [0, 13, 14, 15, 16], [0, 17, 18, 19, 20]]  # Thumb  # Index  # Middle  # Ring  # Pinky
                     palm_base_ids = [5, 9, 13, 17]
                     knuckle_path = [5, 9, 13, 17]
-                    pinky_idx = 17
-                    index_idx = 5
 
                 # Determine Hand Side Orientation (Left vs Right) directly from C++ skeleton.hand
                 hand_side = "Left" if skeleton.hand == 0 else "Right"
@@ -319,8 +305,11 @@ class ManusVisualizer:
                 accent_color = "#f472b6" if is_left else "#38bdf8"
 
                 # Standardize Coordinates relative to Wrist (0, 0, 0)
-                wrist_pos = nodes_by_id[0].transform.position
-                node_coords = {nid: (n.transform.position.x - wrist_pos.x, n.transform.position.y - wrist_pos.y, n.transform.position.z - wrist_pos.z) for nid, n in nodes_by_id.items()}
+                positions = skeleton.node_positions
+                wrist_idx = np.where(node_ids == 0)[0][0]
+                wrist_pos = positions[wrist_idx]
+                rel_positions = positions - wrist_pos
+                node_coords = {nid: rel_positions[idx] for idx, nid in enumerate(node_ids)}
 
                 # 1. Update/Draw the 5 Independent Finger Chains (Wrist-attached)
                 for f_idx, path in enumerate(finger_paths):
@@ -353,7 +342,7 @@ class ManusVisualizer:
                 # 6. Update HUD Overlay Data
                 hud_text = (
                     f"STATUS: STREAMING\nID    : {skeleton.id}\n"
-                    f"WRIST : X={wrist_pos.x:+.3f}\n        Y={wrist_pos.y:+.3f}\n        Z={wrist_pos.z:+.3f} m\n"
+                    f"WRIST : X={wrist_pos[0]:+.3f}\n        Y={wrist_pos[1]:+.3f}\n        Z={wrist_pos[2]:+.3f} m\n"
                     f"TIME  : {skeleton.publish_time_seconds % 1000:07.3f}s"
                 )
                 self.hud_texts[hand_side].set_text(hud_text)

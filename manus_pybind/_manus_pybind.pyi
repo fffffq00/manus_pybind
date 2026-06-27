@@ -1,25 +1,13 @@
 from typing import List, Dict, Any, Optional
-
-class Vec3:
-    """Represent a 3D Vector containing x, y, and z coordinates."""
-    x: float
-    y: float
-    z: float
-    def __init__(self) -> None: ...
-
-class Quaternion:
-    """Represent a quaternion containing w, x, y, and z elements for rotation."""
-    w: float
-    x: float
-    y: float
-    z: float
-    def __init__(self) -> None: ...
+import numpy as np
 
 class Transform:
-    """Represent a 3D Transform containing position (Vec3), rotation (Quaternion), and scale (Vec3)."""
-    position: Vec3
-    rotation: Quaternion
-    scale: Vec3
+    """Represent a 3D Transform containing position, rotation (w,x,y,z), and scale as lists of floats."""
+    position: List[float]
+    rotation: List[float]
+    scale: List[float]
+    position_order: str = ...
+    rotation_order: str = ...
     def __init__(self) -> None: ...
 
 class SkeletonNode:
@@ -34,6 +22,12 @@ class Skeleton:
     publish_time_seconds: int
     hand: int           # 0 for Left, 1 for Right
     nodes: List[SkeletonNode]
+    node_ids: np.ndarray
+    node_positions: np.ndarray
+    node_rotations: np.ndarray
+    node_scales: np.ndarray
+    position_order: str = ...
+    rotation_order: str = ...
     def __init__(self) -> None: ...
 
 class Tracker:
@@ -42,8 +36,8 @@ class Tracker:
     user_id: int
     is_hmd: bool
     type: int  # Maps to TrackerType enum (e.g., 0=Unknown, 1=Hmd, 2=Hand...)
-    position: Vec3
-    rotation: Quaternion
+    position: List[float]
+    rotation: List[float]
     quality: int  # Maps to TrackingQuality enum (e.g., 0=Untrackable, 1=Poor, 2=Ok, 3=Good)
     def __init__(self) -> None: ...
 

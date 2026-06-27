@@ -5,6 +5,7 @@ set -e
 # Setup pyenv path and shims
 export PYENV_ROOT="/root/.pyenv"
 export PATH="$PYENV_ROOT/bin:$PATH"
+version="1.1.0"
 
 # Initialize pyenv shell integration
 eval "$(pyenv init -)"
@@ -42,14 +43,15 @@ python -m build --wheel
 
 MAJOR_VERSION=$(echo "$ACTIVE_VERSION" | cut -d. -f1)
 MINOR_VERSION=$(echo "$ACTIVE_VERSION" | cut -d. -f2)
+PY_TAG=$(echo "$TARGET_VERSION" | sed 's/\.//')
 
 echo "=== Repairing wheel with auditwheel to bundle dependencies ==="
 if [ "$MAJOR_VERSION" -eq 3 ] && [ "$MINOR_VERSION" -le 8 ]; then
     echo "Detected Python ${ACTIVE_VERSION} (<= 3.8). Specifying modern plat tag for auditwheel..."
-    auditwheel repair --plat manylinux_2_31_x86_64 dist/manus_pybind-0.1.0-*.whl
+    auditwheel repair --plat manylinux_2_31_x86_64 dist/manus_pybind-${version}-cp${PY_TAG}-*.whl
 else
     echo "Detected Python ${ACTIVE_VERSION} (>= 3.9). Using default auditwheel behavior..."
-    auditwheel repair dist/manus_pybind-0.1.0-*.whl
+    auditwheel repair dist/manus_pybind-${version}-cp${PY_TAG}-*.whl
 fi
 
 echo ""

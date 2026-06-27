@@ -31,7 +31,7 @@ else:
 ext_modules = [
     Extension(
         "manus_pybind._manus_pybind",
-        sources=["src/ManusClientPybind.cpp"],
+        sources=["src/manus_client.cpp", "src/pybind.cpp"],
         include_dirs=[pybind11.get_include(), "ManusSDK/include"],
         library_dirs=["manus_pybind/lib"],
         libraries=["ManusSDK"],
@@ -44,7 +44,7 @@ ext_modules = [
 
 setup(
     name="manus_pybind",
-    version="0.1.0",
+    version="1.1.0",
     description="Python bindings for the Manus SDK Client data-retrieval API",
     author="fzhao",
     packages=find_packages(),

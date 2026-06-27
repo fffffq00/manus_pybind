@@ -52,7 +52,6 @@ docker run --network=host --rm \
     ${IMAGE_TAG} \
     bash -c "cd /workspace/manus_package && \
              echo 'Cleaning up previous builds...' && \
-             rm -rf build/ dist/ *.egg-info && \
              echo 'Executing build_wheel.sh inside pyenv...' && \
              ./build_wheel.sh"
 

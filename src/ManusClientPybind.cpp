@@ -16,49 +16,51 @@
 
 namespace py = pybind11;
 
-// Pybind-friendly versions of Manus SDK data structures
-struct PyVec3 {
+namespace manus_pybind {
+
+// Pybind-friendly versions of Manus SDK data structures (without Py prefix)
+struct Vec3 {
     float x = 0.0f;
     float y = 0.0f;
     float z = 0.0f;
 };
 
-struct PyQuaternion {
+struct Quaternion {
     float w = 1.0f;
     float x = 0.0f;
     float y = 0.0f;
     float z = 0.0f;
 };
 
-struct PyTransform {
-    PyVec3 position;
-    PyQuaternion rotation;
-    PyVec3 scale;
+struct Transform {
+    Vec3 position;
+    Quaternion rotation;
+    Vec3 scale;
 };
 
-struct PySkeletonNode {
+struct SkeletonNode {
     uint32_t id = 0;
-    PyTransform transform;
+    Transform transform;
 };
 
-struct PySkeleton {
+struct Skeleton {
     uint32_t id = 0;
     uint64_t publish_time_seconds = 0;
     uint32_t hand = 0; // 0 for Left, 1 for Right
-    std::vector<PySkeletonNode> nodes;
+    std::vector<SkeletonNode> nodes;
 };
 
-struct PyTracker {
+struct Tracker {
     std::string id;
     uint32_t user_id = 0;
     bool is_hmd = false;
     int type = 0; // Maps to TrackerType enum
-    PyVec3 position;
-    PyQuaternion rotation;
+    Vec3 position;
+    Quaternion rotation;
     int quality = 0; // Maps to TrackingQuality enum
 };
 
-struct PyErgonomics {
+struct Ergonomics {
     uint32_t id = 0;
     bool is_user_id = false;
     uint32_t hand = 0; // 0 for Left, 1 for Right
@@ -66,41 +68,41 @@ struct PyErgonomics {
     std::chrono::steady_clock::time_point last_update_time = std::chrono::steady_clock::now();
 };
 
-struct PyGesture {
+struct Gesture {
     std::string name;
     float probability = 0.0f;
 };
 
-struct PyGestureData {
+struct GestureData {
     uint32_t id = 0;
     bool is_user_id = false;
-    std::vector<PyGesture> gestures;
+    std::vector<Gesture> gestures;
 };
 
-struct PyHost {
+struct Host {
     std::string hostname;
     std::string ip_address;
     std::string version;
 };
 
-inline PyVec3 rotate_vector_by_quaternion(const PyVec3& v, const PyQuaternion& q) {
+inline Vec3 rotate_vector_by_quaternion(const Vec3& v, const Quaternion& q) {
     float tx = 2.0f * (q.y * v.z - q.z * v.y + q.w * v.x);
     float ty = 2.0f * (q.z * v.x - q.x * v.z + q.w * v.y);
     float tz = 2.0f * (q.x * v.y - q.y * v.x + q.w * v.z);
-    PyVec3 r;
+    Vec3 r;
     r.x = v.x + q.y * tz - q.z * ty;
     r.y = v.y + q.z * tx - q.x * tz;
     r.z = v.z + q.x * ty - q.y * tx;
     return r;
 }
 
-inline PyVec3 get_local_coords(const PySkeletonNode& wrist_node, const PySkeletonNode& target_node) {
-    PyVec3 rel_pos = {
+inline Vec3 get_local_coords(const SkeletonNode& wrist_node, const SkeletonNode& target_node) {
+    Vec3 rel_pos = {
         target_node.transform.position.x - wrist_node.transform.position.x,
         target_node.transform.position.y - wrist_node.transform.position.y,
         target_node.transform.position.z - wrist_node.transform.position.z
     };
-    PyQuaternion wq_conj = {
+    Quaternion wq_conj = {
         wrist_node.transform.rotation.w,
         -wrist_node.transform.rotation.x,
         -wrist_node.transform.rotation.y,
@@ -123,40 +125,40 @@ inline bool is_valid_ergo_data(const float* data) {
     return !all_zero;
 }
 
-class ManusClientPython {
+class ManusClient {
 public:
-    static ManusClientPython* s_instance;
+    static ManusClient* s_instance;
     static LogSeverity s_logLevel;
     std::mutex m_dataMutex;
     bool m_initialized = false;
     bool m_connected = false;
 
     // Local caches for stream data
-    std::vector<PySkeleton> m_skeletons;
-    std::vector<PySkeleton> m_rawSkeletons;
+    std::vector<Skeleton> m_skeletons;
+    std::vector<Skeleton> m_rawSkeletons;
     std::unordered_map<uint32_t, std::chrono::steady_clock::time_point> m_skeletonLastUpdateTime;
     std::unordered_map<uint32_t, std::chrono::steady_clock::time_point> m_rawSkeletonLastUpdateTime;
     std::unordered_map<uint32_t, uint32_t> m_handSideCache;
-    std::vector<PyTracker> m_trackers;
-    std::vector<PyErgonomics> m_ergonomics;
-    std::vector<PyGestureData> m_gestures;
+    std::vector<Tracker> m_trackers;
+    std::vector<Ergonomics> m_ergonomics;
+    std::vector<GestureData> m_gestures;
     std::unordered_map<uint32_t, std::string> m_gestureNames;
     std::chrono::steady_clock::time_point m_lastDataTime = std::chrono::steady_clock::now();
     std::atomic<bool> m_errorTriggered{false};
 
-    ManusClientPython() {
+    ManusClient() {
         s_instance = this;
     }
 
-    ~ManusClientPython() {
-        disconnect();
+    ~ManusClient() {
+        Disconnect();
         if (s_instance == this) {
             s_instance = nullptr;
         }
     }
 
     // Initialize Manus SDK and set up callbacks/coordinates
-    bool initialize(int connectionType) {
+    bool Initialize(int connectionType) {
         if (m_initialized) return true;
 
         SDKReturnCode result;
@@ -191,14 +193,14 @@ public:
         CoreSdk_InitializeCoordinateSystemWithVUH(vuh, true);
 
         m_watcherRunning = true;
-        m_watcherThread = std::thread(&ManusClientPython::watcher_thread_func, this);
+        m_watcherThread = std::thread(&ManusClient::watcher_thread_func, this);
 
         m_initialized = true;
         return true;
     }
 
     // Scan local interface or LAN network for active Manus Core hosts
-    std::vector<PyHost> lookForHosts(int seconds, bool localOnly) {
+    std::vector<Host> LookForHosts(int seconds, bool localOnly) {
         if (!m_initialized) return {};
 
         SDKReturnCode res = CoreSdk_LookForHosts(seconds, localOnly);
@@ -211,9 +213,9 @@ public:
         std::vector<ManusHost> hosts(count);
         CoreSdk_GetAvailableHostsFound(hosts.data(), count);
 
-        std::vector<PyHost> pyHosts;
+        std::vector<Host> pyHosts;
         for (const auto& h : hosts) {
-            PyHost pyH;
+            Host pyH;
             pyH.hostname = h.hostName;
             pyH.ip_address = h.ipAddress;
             pyH.version = std::to_string(h.manusCoreVersion.major) + "." +
@@ -224,8 +226,8 @@ public:
         return pyHosts;
     }
 
-    // Connect to a designated Manus Core host IP or fallback to auto-detection
-    bool connectToHost(const std::string& ipAddress, int connectionType) {
+    // Connect to a designated Manus Core host IP or fallback to auto-detection (supports IP:Port)
+    bool ConnectToHost(const std::string& ipAddress, int connectionType) {
         if (!m_initialized) return false;
 
         ManusHost targetHost;
@@ -263,7 +265,7 @@ public:
     }
 
     // Shutdown client connection and terminate background threads
-    void disconnect() {
+    void Disconnect() {
         if (m_initialized) {
             if (m_watcherRunning) {
                 m_watcherRunning = false;
@@ -278,38 +280,43 @@ public:
     }
 
     // Check connection status with Manus Core SDK
-    bool isConnected() const {
+    bool IsConnected() const {
         return m_connected;
     }
 
     // Retrieve active retargeted full-body/polygon skeleton nodes stream
-    std::vector<PySkeleton> getSkeletons() {
+    std::vector<Skeleton> GetSkeletons() {
         std::lock_guard<std::mutex> lock(m_dataMutex);
         return m_skeletons;
     }
 
     // Retrieve active RAW skeleton joint transforms
-    std::vector<PySkeleton> getRAWSkeletons() {
+    std::vector<Skeleton> GetRAWSkeletons() {
         std::lock_guard<std::mutex> lock(m_dataMutex);
         return m_rawSkeletons;
     }
 
     // Retrieve active trackers stream data (HMD, steamvr trackers, etc)
-    std::vector<PyTracker> getTrackerData() {
+    std::vector<Tracker> GetTrackerData() {
         std::lock_guard<std::mutex> lock(m_dataMutex);
         return m_trackers;
     }
 
     // Retrieve real-time ergonomics stream data (joint stretch angles)
-    std::vector<PyErgonomics> getErgonomicsData() {
+    std::vector<Ergonomics> GetErgonomicsData() {
         std::lock_guard<std::mutex> lock(m_dataMutex);
         return m_ergonomics;
     }
 
     // Retrieve real-time gesture matching predictions data
-    std::vector<PyGestureData> getGestureData() {
+    std::vector<GestureData> GetGestureData() {
         std::lock_guard<std::mutex> lock(m_dataMutex);
         return m_gestures;
+    }
+
+    // Set console logging severity         
+    void SetLogLevel(int level) {
+        s_logLevel = static_cast<LogSeverity>(level);
     }
 
 private:
@@ -339,13 +346,13 @@ private:
             CoreSdk_GetSkeletonInfo(i, &info);
             uint32_t skeletonId = info.id;
 
-            std::vector<SkeletonNode> nodes(info.nodesCount);
+            std::vector<::SkeletonNode> nodes(info.nodesCount);
             CoreSdk_GetSkeletonData(i, nodes.data(), info.nodesCount);
 
-            std::vector<PySkeletonNode> pyNodes;
+            std::vector<SkeletonNode> pyNodes;
             pyNodes.reserve(info.nodesCount);
             for (const auto& node : nodes) {
-                PySkeletonNode pyNode;
+                SkeletonNode pyNode;
                 pyNode.id = node.id;
                 pyNode.transform.position = {node.transform.position.x, node.transform.position.y, node.transform.position.z};
                 pyNode.transform.rotation = {node.transform.rotation.w, node.transform.rotation.x, node.transform.rotation.y, node.transform.rotation.z};
@@ -361,17 +368,17 @@ private:
             } else {
                 uint32_t pinky_idx = (pyNodes.size() >= 25) ? 21 : 17;
                 uint32_t index_idx = (pyNodes.size() >= 25) ? 6 : 5;
-                const PySkeletonNode* wrist = nullptr;
-                const PySkeletonNode* pinky_mcp = nullptr;
-                const PySkeletonNode* index_mcp = nullptr;
+                const SkeletonNode* wrist = nullptr;
+                const SkeletonNode* pinky_mcp = nullptr;
+                const SkeletonNode* index_mcp = nullptr;
                 for (const auto& node : pyNodes) {
                     if (node.id == 0) wrist = &node;
                     else if (node.id == pinky_idx) pinky_mcp = &node;
                     else if (node.id == index_idx) index_mcp = &node;
                 }
                 if (wrist && pinky_mcp && index_mcp) {
-                    PyVec3 local_pinky = get_local_coords(*wrist, *pinky_mcp);
-                    PyVec3 local_index = get_local_coords(*wrist, *index_mcp);
+                    Vec3 local_pinky = get_local_coords(*wrist, *pinky_mcp);
+                    Vec3 local_index = get_local_coords(*wrist, *index_mcp);
                     hand = (local_pinky.y - local_index.y > 0.0f) ? 0 : 1; // 0=Left, 1=Right
                     s_instance->m_handSideCache[skeletonId] = hand;
                 }
@@ -389,7 +396,7 @@ private:
                 }
             }
             if (!found) {
-                PySkeleton sk;
+                Skeleton sk;
                 sk.id = skeletonId;
                 sk.publish_time_seconds = p_SkeletonStreamInfo->publishTime.time;
                 sk.hand = hand;
@@ -417,13 +424,13 @@ private:
             CoreSdk_GetRawSkeletonInfo(i, &info);
             uint32_t gloveId = info.gloveId;
 
-            std::vector<SkeletonNode> nodes(info.nodesCount);
+            std::vector<::SkeletonNode> nodes(info.nodesCount);
             CoreSdk_GetRawSkeletonData(i, nodes.data(), info.nodesCount);
 
-            std::vector<PySkeletonNode> pyNodes;
+            std::vector<SkeletonNode> pyNodes;
             pyNodes.reserve(info.nodesCount);
             for (const auto& node : nodes) {
-                PySkeletonNode pyNode;
+                SkeletonNode pyNode;
                 pyNode.id = node.id;
                 pyNode.transform.position = {node.transform.position.x, node.transform.position.y, node.transform.position.z};
                 pyNode.transform.rotation = {node.transform.rotation.w, node.transform.rotation.x, node.transform.rotation.y, node.transform.rotation.z};
@@ -447,17 +454,17 @@ private:
                     // Fallback to coordinate math if SDK data is unavailable
                     uint32_t pinky_idx = (pyNodes.size() >= 25) ? 21 : 17;
                     uint32_t index_idx = (pyNodes.size() >= 25) ? 6 : 5;
-                    const PySkeletonNode* wrist = nullptr;
-                    const PySkeletonNode* pinky_mcp = nullptr;
-                    const PySkeletonNode* index_mcp = nullptr;
+                    const SkeletonNode* wrist = nullptr;
+                    const SkeletonNode* pinky_mcp = nullptr;
+                    const SkeletonNode* index_mcp = nullptr;
                     for (const auto& node : pyNodes) {
                         if (node.id == 0) wrist = &node;
                         else if (node.id == pinky_idx) pinky_mcp = &node;
                         else if (node.id == index_idx) index_mcp = &node;
                     }
                     if (wrist && pinky_mcp && index_mcp) {
-                        PyVec3 local_pinky = get_local_coords(*wrist, *pinky_mcp);
-                        PyVec3 local_index = get_local_coords(*wrist, *index_mcp);
+                        Vec3 local_pinky = get_local_coords(*wrist, *pinky_mcp);
+                        Vec3 local_index = get_local_coords(*wrist, *index_mcp);
                         hand = (local_pinky.y - local_index.y > 0.0f) ? 0 : 1; // 0=Left, 1=Right
                         s_instance->m_handSideCache[gloveId] = hand;
                     }
@@ -476,7 +483,7 @@ private:
                 }
             }
             if (!found) {
-                PySkeleton sk;
+                Skeleton sk;
                 sk.id = gloveId;
                 sk.publish_time_seconds = p_RawSkeletonStreamInfo->publishTime.time;
                 sk.hand = hand;
@@ -489,7 +496,7 @@ private:
 
     static void OnTrackerStream(const TrackerStreamInfo* const p_TrackerStreamInfo) {
         if (!s_instance) return;
-        std::vector<PyTracker> trackers(p_TrackerStreamInfo->trackerCount);
+        std::vector<Tracker> trackers(p_TrackerStreamInfo->trackerCount);
         for (uint32_t i = 0; i < p_TrackerStreamInfo->trackerCount; i++) {
             TrackerData data;
             CoreSdk_GetTrackerData(i, &data);
@@ -557,7 +564,7 @@ private:
                     }
                 }
                 if (!found) {
-                    PyErgonomics leftErgo;
+                    Ergonomics leftErgo;
                     leftErgo.id = p_Ergo->data[i].id;
                     leftErgo.is_user_id = p_Ergo->data[i].isUserID;
                     leftErgo.hand = 0; // Left Hand
@@ -578,7 +585,7 @@ private:
                     }
                 }
                 if (!found) {
-                    PyErgonomics rightErgo;
+                    Ergonomics rightErgo;
                     rightErgo.id = p_Ergo->data[i].id;
                     rightErgo.is_user_id = p_Ergo->data[i].isUserID;
                     rightErgo.hand = 1; // Right Hand
@@ -606,12 +613,12 @@ private:
 
     static void OnGestureStream(const GestureStreamInfo* const p_GestureStream) {
         if (!s_instance) return;
-        std::vector<PyGestureData> gestureList;
+        std::vector<GestureData> gestureList;
         for (uint32_t i = 0; i < p_GestureStream->gestureProbabilitiesCount; i++) {
             GestureProbabilities t_Probs;
             CoreSdk_GetGestureStreamData(i, 0, &t_Probs);
 
-            PyGestureData pyGData;
+            GestureData pyGData;
             pyGData.id = t_Probs.id;
             pyGData.is_user_id = t_Probs.isUserID;
 
@@ -629,7 +636,7 @@ private:
             }
 
             for (const auto& gp : rawProbs) {
-                PyGesture pyG;
+                Gesture pyG;
                 pyG.probability = gp.percent;
                 std::lock_guard<std::mutex> lock(s_instance->m_dataMutex);
                 auto it = s_instance->m_gestureNames.find(gp.id);
@@ -739,7 +746,7 @@ private:
                     // Global stream is still active, but individual gloves/skeletons might have disconnected.
                     // Prune timed-out individual skeletons.
                     if (!m_skeletons.empty()) {
-                        auto it = std::remove_if(m_skeletons.begin(), m_skeletons.end(), [this, now](const PySkeleton& sk) {
+                        auto it = std::remove_if(m_skeletons.begin(), m_skeletons.end(), [this, now](const Skeleton& sk) {
                             auto update_it = m_skeletonLastUpdateTime.find(sk.id);
                             if (update_it != m_skeletonLastUpdateTime.end()) {
                                 bool is_timeout = std::chrono::duration_cast<std::chrono::milliseconds>(now - update_it->second).count() > 1000;
@@ -753,7 +760,7 @@ private:
                         m_skeletons.erase(it, m_skeletons.end());
                     }
                     if (!m_rawSkeletons.empty()) {
-                        auto it = std::remove_if(m_rawSkeletons.begin(), m_rawSkeletons.end(), [this, now](const PySkeleton& sk) {
+                        auto it = std::remove_if(m_rawSkeletons.begin(), m_rawSkeletons.end(), [this, now](const Skeleton& sk) {
                             auto update_it = m_rawSkeletonLastUpdateTime.find(sk.id);
                             if (update_it != m_rawSkeletonLastUpdateTime.end()) {
                                 bool is_timeout = std::chrono::duration_cast<std::chrono::milliseconds>(now - update_it->second).count() > 1000;
@@ -768,7 +775,7 @@ private:
                     }
                     // Prune timed-out individual glove ergonomics cache entries.
                     if (!m_ergonomics.empty()) {
-                        auto it = std::remove_if(m_ergonomics.begin(), m_ergonomics.end(), [now](const PyErgonomics& ergo) {
+                        auto it = std::remove_if(m_ergonomics.begin(), m_ergonomics.end(), [now](const Ergonomics& ergo) {
                             return std::chrono::duration_cast<std::chrono::milliseconds>(now - ergo.last_update_time).count() > 1000;
                         });
                         m_ergonomics.erase(it, m_ergonomics.end());
@@ -804,109 +811,110 @@ private:
 };
 
 // Define static members
-LogSeverity ManusClientPython::s_logLevel = LogSeverity_Warn;
-ManusClientPython* ManusClientPython::s_instance = nullptr;
+LogSeverity ManusClient::s_logLevel = LogSeverity_Warn;
+ManusClient* ManusClient::s_instance = nullptr;
+
+} // namespace manus_pybind
 
 PYBIND11_MODULE(_manus_pybind, m) {
     m.doc() = "Python bindings for the Manus SDK Client data-retrieval API";
 
-    py::class_<PyVec3>(m, "Vec3")
+    py::class_<manus_pybind::Vec3>(m, "Vec3")
         .def(py::init<>())
-        .def_readwrite("x", &PyVec3::x)
-        .def_readwrite("y", &PyVec3::y)
-        .def_readwrite("z", &PyVec3::z)
-        .def("__repr__", [](const PyVec3 &v) {
+        .def_readwrite("x", &manus_pybind::Vec3::x)
+        .def_readwrite("y", &manus_pybind::Vec3::y)
+        .def_readwrite("z", &manus_pybind::Vec3::z)
+        .def("__repr__", [](const manus_pybind::Vec3 &v) {
             return "<manus_pybind.Vec3 x=" + std::to_string(v.x) + " y=" + std::to_string(v.y) + " z=" + std::to_string(v.z) + ">";
         });
 
-    py::class_<PyQuaternion>(m, "Quaternion")
+    py::class_<manus_pybind::Quaternion>(m, "Quaternion")
         .def(py::init<>())
-        .def_readwrite("w", &PyQuaternion::w)
-        .def_readwrite("x", &PyQuaternion::x)
-        .def_readwrite("y", &PyQuaternion::y)
-        .def_readwrite("z", &PyQuaternion::z)
-        .def("__repr__", [](const PyQuaternion &q) {
+        .def_readwrite("w", &manus_pybind::Quaternion::w)
+        .def_readwrite("x", &manus_pybind::Quaternion::x)
+        .def_readwrite("y", &manus_pybind::Quaternion::y)
+        .def_readwrite("z", &manus_pybind::Quaternion::z)
+        .def("__repr__", [](const manus_pybind::Quaternion &q) {
             return "<manus_pybind.Quaternion w=" + std::to_string(q.w) + " x=" + std::to_string(q.x) + " y=" + std::to_string(q.y) + " z=" + std::to_string(q.z) + ">";
         });
 
-    py::class_<PyTransform>(m, "Transform")
+    py::class_<manus_pybind::Transform>(m, "Transform")
         .def(py::init<>())
-        .def_readwrite("position", &PyTransform::position)
-        .def_readwrite("rotation", &PyTransform::rotation)
-        .def_readwrite("scale", &PyTransform::scale);
+        .def_readwrite("position", &manus_pybind::Transform::position)
+        .def_readwrite("rotation", &manus_pybind::Transform::rotation)
+        .def_readwrite("scale", &manus_pybind::Transform::scale);
 
-    py::class_<PySkeletonNode>(m, "SkeletonNode")
+    py::class_<manus_pybind::SkeletonNode>(m, "SkeletonNode")
         .def(py::init<>())
-        .def_readwrite("id", &PySkeletonNode::id)
-        .def_readwrite("transform", &PySkeletonNode::transform);
+        .def_readwrite("id", &manus_pybind::SkeletonNode::id)
+        .def_readwrite("transform", &manus_pybind::SkeletonNode::transform);
 
-    py::class_<PySkeleton>(m, "Skeleton")
+    py::class_<manus_pybind::Skeleton>(m, "Skeleton")
         .def(py::init<>())
-        .def_readwrite("id", &PySkeleton::id)
-        .def_readwrite("publish_time_seconds", &PySkeleton::publish_time_seconds)
-        .def_readwrite("hand", &PySkeleton::hand)
-        .def_readwrite("nodes", &PySkeleton::nodes);
+        .def_readwrite("id", &manus_pybind::Skeleton::id)
+        .def_readwrite("publish_time_seconds", &manus_pybind::Skeleton::publish_time_seconds)
+        .def_readwrite("hand", &manus_pybind::Skeleton::hand)
+        .def_readwrite("nodes", &manus_pybind::Skeleton::nodes);
 
-    py::class_<PyTracker>(m, "Tracker")
+    py::class_<manus_pybind::Tracker>(m, "Tracker")
         .def(py::init<>())
-        .def_readwrite("id", &PyTracker::id)
-        .def_readwrite("user_id", &PyTracker::user_id)
-        .def_readwrite("is_hmd", &PyTracker::is_hmd)
-        .def_readwrite("type", &PyTracker::type)
-        .def_readwrite("position", &PyTracker::position)
-        .def_readwrite("rotation", &PyTracker::rotation)
-        .def_readwrite("quality", &PyTracker::quality);
+        .def_readwrite("id", &manus_pybind::Tracker::id)
+        .def_readwrite("user_id", &manus_pybind::Tracker::user_id)
+        .def_readwrite("is_hmd", &manus_pybind::Tracker::is_hmd)
+        .def_readwrite("type", &manus_pybind::Tracker::type)
+        .def_readwrite("position", &manus_pybind::Tracker::position)
+        .def_readwrite("rotation", &manus_pybind::Tracker::rotation)
+        .def_readwrite("quality", &manus_pybind::Tracker::quality);
 
-    py::class_<PyErgonomics>(m, "Ergonomics")
+    py::class_<manus_pybind::Ergonomics>(m, "Ergonomics")
         .def(py::init<>())
-        .def_readwrite("id", &PyErgonomics::id)
-        .def_readwrite("is_user_id", &PyErgonomics::is_user_id)
-        .def_readwrite("hand", &PyErgonomics::hand)
-        .def_readwrite("data", &PyErgonomics::data);
+        .def_readwrite("id", &manus_pybind::Ergonomics::id)
+        .def_readwrite("is_user_id", &manus_pybind::Ergonomics::is_user_id)
+        .def_readwrite("hand", &manus_pybind::Ergonomics::hand)
+        .def_readwrite("data", &manus_pybind::Ergonomics::data);
 
-    py::class_<PyGesture>(m, "Gesture")
+    py::class_<manus_pybind::Gesture>(m, "Gesture")
         .def(py::init<>())
-        .def_readwrite("name", &PyGesture::name)
-        .def_readwrite("probability", &PyGesture::probability);
+        .def_readwrite("name", &manus_pybind::Gesture::name)
+        .def_readwrite("probability", &manus_pybind::Gesture::probability);
 
-    py::class_<PyGestureData>(m, "GestureData")
+    py::class_<manus_pybind::GestureData>(m, "GestureData")
         .def(py::init<>())
-        .def_readwrite("id", &PyGestureData::id)
-        .def_readwrite("is_user_id", &PyGestureData::is_user_id)
-        .def_readwrite("gestures", &PyGestureData::gestures);
+        .def_readwrite("id", &manus_pybind::GestureData::id)
+        .def_readwrite("is_user_id", &manus_pybind::GestureData::is_user_id)
+        .def_readwrite("gestures", &manus_pybind::GestureData::gestures);
 
-    py::class_<PyHost>(m, "Host")
+    py::class_<manus_pybind::Host>(m, "Host")
         .def(py::init<>())
-        .def_readwrite("hostname", &PyHost::hostname)
-        .def_readwrite("ip_address", &PyHost::ip_address)
-        .def_readwrite("version", &PyHost::version)
-        .def("__repr__", [](const PyHost &h) {
+        .def_readwrite("hostname", &manus_pybind::Host::hostname)
+        .def_readwrite("ip_address", &manus_pybind::Host::ip_address)
+        .def_readwrite("version", &manus_pybind::Host::version)
+        .def("__repr__", [](const manus_pybind::Host &h) {
             return "<manus_pybind.Host " + h.hostname + " (" + h.ip_address + ") version=" + h.version + ">";
         });
 
-    py::class_<ManusClientPython>(m, "ManusClient")
+    py::class_<manus_pybind::ManusClient>(m, "ManusClient")
         .def(py::init<>())
-        .def("initialize", &ManusClientPython::initialize, py::arg("connection_type") = 2, 
+        .def("initialize", &manus_pybind::ManusClient::Initialize, py::arg("connection_type") = 2, 
              "Initializes Manus Core SDK wrapper. ConnectionType: 1=Integrated, 2=Local, 3=Remote")
-        .def("look_for_hosts", &ManusClientPython::lookForHosts, py::arg("seconds") = 2, py::arg("local_only") = true,
+        .def("look_for_hosts", &manus_pybind::ManusClient::LookForHosts, py::arg("seconds") = 2, py::arg("local_only") = true,
              "Scans the network for running Manus Core servers.")
-        .def("connect_to_host", &ManusClientPython::connectToHost, py::arg("ip_address") = "", py::arg("connection_type") = 2,
+        .def("connect_to_host", &manus_pybind::ManusClient::ConnectToHost, py::arg("ip_address") = "", py::arg("connection_type") = 2,
              "Connects to the specified Core Host IP, or falls back to first detected host.")
-        .def("disconnect", &ManusClientPython::disconnect, 
+        .def("disconnect", &manus_pybind::ManusClient::Disconnect, 
              "Shuts down the Core SDK client.")
-        .def("is_connected", &ManusClientPython::isConnected, 
+        .def("is_connected", &manus_pybind::ManusClient::IsConnected, 
              "Returns True if successfully connected to Manus Core.")
-        .def("get_skeletons", &ManusClientPython::getSkeletons, 
+        .def("get_skeletons", &manus_pybind::ManusClient::GetSkeletons, 
              "Retrieves the active retargeted skeleton nodes data.")
-        .def("get_raw_skeletons", &ManusClientPython::getRAWSkeletons, 
+        .def("get_raw_skeletons", &manus_pybind::ManusClient::GetRAWSkeletons, 
              "Retrieves the raw (non-retargeted) skeleton joint transforms.")
-        .def("get_tracker_data", &ManusClientPython::getTrackerData, 
+        .def("get_tracker_data", &manus_pybind::ManusClient::GetTrackerData, 
              "Retrieves trackers position and orientation updates.")
-        .def("get_ergonomics_data", &ManusClientPython::getErgonomicsData, 
+        .def("get_ergonomics_data", &manus_pybind::ManusClient::GetErgonomicsData, 
              "Retrieves finger ergonomics angle measurements.")
-        .def("get_gesture_data", &ManusClientPython::getGestureData, 
+        .def("get_gesture_data", &manus_pybind::ManusClient::GetGestureData, 
              "Retrieves real-time gesture matching probabilities.")
-        .def("set_log_level", [](ManusClientPython& self, int level) {
-             ManusClientPython::s_logLevel = static_cast<LogSeverity>(level);
-        }, "Sets the console log level (0=Debug, 1=Info, 2=Warn, 3=Error)");
+        .def("set_log_level", &manus_pybind::ManusClient::SetLogLevel, py::arg("level"),
+             "Sets the console log level (0=Debug, 1=Info, 2=Warn, 3=Error)");
 }
